@@ -21,8 +21,9 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Optimus - Platform to Create',
-  description: 'The creative platform for teams who ship. Build, deploy, and scale with unprecedented velocity.',
+  title: 'AgentShield — Authorization Regression Testing',
+  description:
+    'When an AI agent changes, did its security authorization change too? Capability-aware authorization regression testing and governance for evolving tool-using AI agents.',
   generator: 'v0.app',
 }
 
