@@ -160,7 +160,7 @@ export function ImpactGraph({ className }: { className?: string }) {
                     height={NODE_H}
                     rx={5}
                     strokeWidth={1.25}
-                    className={cn(toneFor(n, active), selected === n.id && "stroke-foreground stroke-2")}
+                    className={cn(toneFor(n, Boolean(active)), selected === n.id && "stroke-foreground stroke-2")}
                   />
                   <text
                     x={NODE_W / 2}

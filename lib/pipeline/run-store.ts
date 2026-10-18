@@ -114,7 +114,7 @@ export async function listRunSummaries(limit = 50): Promise<RunSummary[]> {
       decision_reasons: r.decision_reasons ?? [],
       changes: (r.capability_diff ?? []).filter((d) => d.change_type !== "UNCHANGED").length,
       known_total: (r.known_test_results ?? []).length,
-      known_passed: (r.known_test_results ?? []).filter((k) => k.passed).length,
+      known_passed: (r.known_test_results ?? []).filter((k) => k.pass).length,
       unknown_total: (r.unknown_test_results ?? []).length,
       violations: (r.unknown_test_results ?? []).filter((u) => u.verdict?.verdict === "VIOLATION").length,
       llm_errors: (r.unknown_test_results ?? []).filter((u) => u.status === "error").length,
