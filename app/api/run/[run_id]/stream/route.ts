@@ -1,14 +1,15 @@
-import { getRun, subscribe } from "@/lib/pipeline/run-store"
+import { getEventsSince, getLiveRun, getRun, subscribe } from "@/lib/pipeline/run-store"
 import type { RunEvent } from "@/lib/pipeline/types"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
 
 const TERMINAL_STEPS = new Set<RunEvent["step"]>(["decision", "run_error"])
+const POLL_MS = 1000
 
 export async function GET(req: Request, { params }: { params: Promise<{ run_id: string }> }) {
   const { run_id } = await params
-  const run = getRun(run_id)
+  const run = await getRun(run_id)
   if (!run) return new Response("Run not found", { status: 404 })
 
   const encoder = new TextEncoder()
@@ -17,27 +18,53 @@ export async function GET(req: Request, { params }: { params: Promise<{ run_id: 
   const stream = new ReadableStream({
     start(controller) {
       let closed = false
-      const send = (event: RunEvent) => {
-        if (closed) return
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
-        if (TERMINAL_STEPS.has(event.step)) close()
-      }
-      const heartbeat = setInterval(() => {
-        if (!closed) controller.enqueue(encoder.encode(`: keep-alive\n\n`))
-      }, 15_000)
+      let lastSeq = -1
+      const timers: ReturnType<typeof setInterval>[] = []
+      let unsubscribe = () => {}
+
       const close = () => {
         if (closed) return
         closed = true
-        clearInterval(heartbeat)
+        timers.forEach(clearInterval)
         unsubscribe()
         controller.close()
       }
+      const send = (event: RunEvent) => {
+        if (closed || event.seq <= lastSeq) return
+        lastSeq = event.seq
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+        if (TERMINAL_STEPS.has(event.step)) close()
+      }
 
-      const unsubscribe = subscribe(run_id, send)
+      timers.push(
+        setInterval(() => {
+          if (!closed) controller.enqueue(encoder.encode(`: keep-alive\n\n`))
+        }, 15_000),
+      )
       cleanup = close
-      const backlog = [...run.events]
-      for (const e of backlog) send(e)
       req.signal.addEventListener("abort", close)
+
+      if (getLiveRun(run_id)) {
+        unsubscribe = subscribe(run_id, send)
+        for (const e of [...run.events]) send(e)
+        return
+      }
+
+      // Run is finished or executing on another instance: replay from Postgres and poll for new rows.
+      for (const e of run.events) send(e)
+      if (closed || run.status !== "running") {
+        close()
+        return
+      }
+      timers.push(
+        setInterval(async () => {
+          try {
+            for (const e of await getEventsSince(run_id, lastSeq)) send(e)
+          } catch {
+            close()
+          }
+        }, POLL_MS),
+      )
     },
     cancel() {
       cleanup()

@@ -1,3 +1,4 @@
+import { asc, eq, ne } from "drizzle-orm"
 import type { PolicyRule, RuleOutcome, ToolDefinition } from "./types"
 
 function seedRules(): PolicyRule[] {
@@ -29,19 +30,40 @@ function seedRules(): PolicyRule[] {
   ]
 }
 
-const store = globalThis as unknown as { __agentshieldRules?: PolicyRule[] }
-
-export function getRules(): PolicyRule[] {
-  if (!store.__agentshieldRules) store.__agentshieldRules = seedRules()
-  return store.__agentshieldRules
+async function store() {
+  const [{ db }, { policyRules }] = await Promise.all([import("@/lib/db"), import("@/lib/db/schema")])
+  return { db, policyRules }
 }
 
-export function addRule(rule: PolicyRule) {
-  getRules().push(rule)
+export async function getRules(): Promise<PolicyRule[]> {
+  const { db, policyRules } = await store()
+  const rows = await db.select().from(policyRules).orderBy(asc(policyRules.createdAt))
+  if (rows.length === 0) {
+    const seeds = seedRules()
+    await db
+      .insert(policyRules)
+      .values(seeds.map((rule) => ({ id: rule.id, source: rule.source, rule })))
+      .onConflictDoNothing()
+    return seeds
+  }
+  return rows.map((r) => r.rule)
 }
 
-export function resetRules() {
-  store.__agentshieldRules = seedRules()
+export async function addRule(rule: PolicyRule) {
+  const { db, policyRules } = await store()
+  await db.insert(policyRules).values({ id: rule.id, source: rule.source, rule }).onConflictDoNothing()
+}
+
+export async function resetRules() {
+  const { db, policyRules } = await store()
+  await db.delete(policyRules).where(ne(policyRules.source, "seed"))
+  const seeds = await db.select().from(policyRules).where(eq(policyRules.source, "seed"))
+  if (seeds.length < 2) {
+    await db
+      .insert(policyRules)
+      .values(seedRules().map((rule) => ({ id: rule.id, source: rule.source, rule })))
+      .onConflictDoNothing()
+  }
 }
 
 /** Pure evaluation of a rule against an attempted invocation. */

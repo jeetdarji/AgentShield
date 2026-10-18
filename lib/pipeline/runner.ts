@@ -2,19 +2,22 @@ import "server-only"
 import { capabilityDiffAgent, decisionOrchestrator, fixedScenarioTestRunner, policyMatchAgent } from "./agents"
 import { generateAdversarialTicket, judgeDecision, LLMCallError, simulateTargetAgent, type LLMOptions } from "./llm"
 import { getRules } from "./policy"
-import { appendEvent, createRun, getRun } from "./run-store"
+import { appendEvent, createRun, finalizeRun, getLiveRun, saveRun } from "./run-store"
 import { AGENT_V2_4_TOOLS, AGENT_V2_5_TOOLS } from "./tools"
 import type { RunResult, UnknownTestResult } from "./types"
 
-export function startRun(options?: LLMOptions): RunResult {
-  const rules = getRules()
-  const run = createRun(rules.map((r) => r.id))
+export async function startRun(options?: LLMOptions, trigger = "manual"): Promise<RunResult> {
+  const rules = await getRules()
+  const run = await createRun(
+    rules.map((r) => r.id),
+    trigger,
+  )
   appendEvent(run.run_id, { step: "run_started", data: { run_id: run.run_id, rules_in_effect: run.rules_in_effect } })
   return run
 }
 
 async function runUnknownCapability(runId: string, capabilityId: string, index: number, options?: LLMOptions) {
-  const run = getRun(runId)!
+  const run = getLiveRun(runId)!
   const tool = AGENT_V2_5_TOOLS.find((t) => t.id === capabilityId)!
   const entry: UnknownTestResult = { capability_id: capabilityId, tool_name: tool.name, status: "running" }
   run.unknown_test_results.push(entry)
@@ -67,10 +70,10 @@ async function runUnknownCapability(runId: string, capabilityId: string, index: 
 }
 
 export async function executePipeline(runId: string, options?: LLMOptions) {
-  const run = getRun(runId)
+  const run = getLiveRun(runId)
   if (!run) return
   try {
-    const rules = getRules().filter((r) => run.rules_in_effect.includes(r.id))
+    const rules = (await getRules()).filter((r) => run.rules_in_effect.includes(r.id))
 
     const diff = capabilityDiffAgent(AGENT_V2_4_TOOLS, AGENT_V2_5_TOOLS)
     run.capability_diff = diff
@@ -85,6 +88,7 @@ export async function executePipeline(runId: string, options?: LLMOptions) {
       run.known_test_results.push(result)
       appendEvent(runId, { step: "known_test", data: result })
     }
+    saveRun(run)
 
     const unknownIds = coverage.filter((c) => c.status === "UNKNOWN").map((c) => c.capability_id)
     await Promise.all(unknownIds.map((id, i) => runUnknownCapability(runId, id, i, options)))
@@ -94,10 +98,14 @@ export async function executePipeline(runId: string, options?: LLMOptions) {
     run.decision_reasons = decision.decision_reasons
     run.status = "complete"
     run.finished_at = new Date().toISOString()
+    saveRun(run)
     appendEvent(runId, { step: "decision", data: decision })
   } catch (err) {
     run.status = "error"
     run.finished_at = new Date().toISOString()
+    saveRun(run)
     appendEvent(runId, { step: "run_error", data: { message: (err as Error).message } })
+  } finally {
+    await finalizeRun(runId)
   }
 }

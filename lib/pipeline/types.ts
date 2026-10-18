@@ -137,6 +137,7 @@ export type RunEventInput = RunEvent extends infer E ? (E extends RunEvent ? Omi
 export interface RunResult {
   run_id: string
   status: "running" | "complete" | "error"
+  trigger: string
   started_at: string
   finished_at: string | null
   rules_in_effect: string[]

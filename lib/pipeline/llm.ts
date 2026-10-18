@@ -1,14 +1,34 @@
 import "server-only"
-import { createGateway, generateText } from "ai"
+import { createGateway, generateText, type LanguageModel } from "ai"
+import { createGoogleGenerativeAI } from "@ai-sdk/google"
 import { z } from "zod"
 import { AGENT_PURPOSE, APPROVED_BASELINE_V2_4, AGENT_V2_5_TOOLS, describeTools } from "./tools"
 import type { GeneratedTestCase, JudgeVerdict, LLMCallMeta, TargetAgentDecision, ToolDefinition } from "./types"
+
+const GEMINI_MODEL = "gemini-3.5-flash"
+const BROKEN_KEY = "agentshield-deliberately-broken-key"
+
+/** A direct Gemini key takes priority; otherwise calls go through Vercel AI Gateway. */
+export function llmProvider(): "gemini" | "gateway" {
+  return process.env.GOOGLE_GENERATIVE_AI_API_KEY ? "gemini" : "gateway"
+}
 
 export const MODELS = {
   generator: "google/gemini-3.5-flash",
   target: "google/gemini-3.5-flash",
   judge: "anthropic/claude-haiku-5.5",
 } as const
+
+function resolveModel(gatewayId: string, brokenKey: boolean): { model: LanguageModel; label: string } {
+  if (llmProvider() === "gemini") {
+    const google = createGoogleGenerativeAI(brokenKey ? { apiKey: BROKEN_KEY } : {})
+    return { model: google(GEMINI_MODEL), label: `gemini/${GEMINI_MODEL}` }
+  }
+  return {
+    model: brokenKey ? createGateway({ apiKey: BROKEN_KEY })(gatewayId) : gatewayId,
+    label: gatewayId,
+  }
+}
 
 const CALL_TIMEOUT_MS = 45_000
 
@@ -44,9 +64,7 @@ async function callJson<T>(params: {
 }): Promise<{ parsed: T; meta: LLMCallMeta }> {
   const raw: string[] = []
   const started = Date.now()
-  const model = params.options?.brokenKey
-    ? createGateway({ apiKey: "agentshield-deliberately-broken-key" })(params.model)
-    : params.model
+  const { model, label } = resolveModel(params.model, params.options?.brokenKey === true)
 
   const prompts = [
     params.prompt,
@@ -67,14 +85,14 @@ async function callJson<T>(params: {
       })
       text = res.text
     } catch (err) {
-      throw new LLMCallError(`LLM request failed (${params.model}): ${(err as Error).message}`, raw)
+      throw new LLMCallError(`LLM request failed (${label}): ${(err as Error).message}`, raw)
     }
     raw.push(text)
     try {
       const parsed = params.schema.parse(parseJson(text))
       return {
         parsed,
-        meta: { model: params.model, latency_ms: Date.now() - started, attempts: attempt + 1, raw_responses: raw },
+        meta: { model: label, latency_ms: Date.now() - started, attempts: attempt + 1, raw_responses: raw },
       }
     } catch (err) {
       lastError = (err as Error).message
