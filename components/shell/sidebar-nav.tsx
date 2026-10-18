@@ -16,6 +16,7 @@ import {
   Microscope,
   Workflow,
   ShieldHalf,
+  Radio,
   X,
 } from "lucide-react"
 
@@ -24,6 +25,7 @@ const nav = [
   { href: "/onboard", label: "Onboard Agent", icon: UploadCloud, hint: "F1" },
   { href: "/agents/shopease", label: "Agent Detail", icon: Bot, hint: "ShopEase" },
   { href: "/compare", label: "Version Comparison", icon: GitCompareArrows, hint: "Capability diff" },
+  { href: "/live-run", label: "Live Run", icon: Radio, hint: "Real pipeline" },
   { href: "/regression", label: "Regression Run", icon: FlaskConical, hint: "Targeted tests" },
   { href: "/gate", label: "Deployment Gate", icon: ShieldCheck, hint: "PASS / BLOCK" },
   { href: "/cicd", label: "CI/CD Integration", icon: GitPullRequestArrow, hint: "PR gate" },
