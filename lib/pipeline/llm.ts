@@ -10,7 +10,7 @@ const BROKEN_KEY = "agentshield-deliberately-broken-key"
 
 /** A direct Gemini key takes priority; otherwise calls go through Vercel AI Gateway. */
 export function llmProvider(): "gemini" | "gateway" {
-  return process.env.GOOGLE_GENERATIVE_AI_API_KEY ? "gemini" : "gateway"
+  return process.env.GCP_API_KEY ? "gemini" : "gateway"
 }
 
 export const MODELS = {
@@ -21,7 +21,9 @@ export const MODELS = {
 
 function resolveModel(gatewayId: string, brokenKey: boolean): { model: LanguageModel; label: string } {
   if (llmProvider() === "gemini") {
-    const google = createGoogleGenerativeAI(brokenKey ? { apiKey: BROKEN_KEY } : {})
+    const google = createGoogleGenerativeAI({
+      apiKey: brokenKey ? BROKEN_KEY : process.env.GCP_API_KEY,
+    })
     return { model: google(GEMINI_MODEL), label: `gemini/${GEMINI_MODEL}` }
   }
   return {
